@@ -1,0 +1,12 @@
+.env
+*.zip
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.db
+*.sqlite3
+*.log
+*.toml
+*db*

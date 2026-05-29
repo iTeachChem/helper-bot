@@ -23,7 +23,7 @@ def misc(bot):
         )
         for command in sorted(bot.commands, key=lambda c: c.name):
             embed.add_field(
-                name=f"`${command.name}`",
+                name=f"`+{command.name}`",
                 value=command.help or "no description",
                 inline=False
             )

@@ -7,7 +7,6 @@ zerops:
         - pip install --target=./vendor -r requirements.txt
       deployFiles:
         - core
-        - scripts
         - main.py
         - requirements.txt
         - zerops.yml

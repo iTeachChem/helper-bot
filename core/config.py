@@ -1,6 +1,6 @@
 import logging
 import tomllib
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
@@ -15,9 +15,16 @@ class ForumConfig:
 
 
 @dataclass(frozen=True)
+class HoneypotConfig:
+    channel_id: int
+    exempt_roles: tuple[int, ...]
+
+
+@dataclass(frozen=True)
 class Config:
     prefix: str
     forum: ForumConfig
+    honeypot: HoneypotConfig
     excluded: tuple[str, ...]
 
 
@@ -34,18 +41,30 @@ def _load() -> Config:
         tag_roles={int(k): int(v) for k, v in fc.get("tag_roles", {}).items()},
     )
 
+    hc = raw.get("honeypot", {})
+    honeypot = HoneypotConfig(
+        channel_id=int(hc.get("channel_id", 0)),
+        exempt_roles=tuple(int(r) for r in hc.get("exempt_roles", [])),
+    )
+
     excluded = tuple(raw.get("excluded", []))
 
-    cfg = Config(prefix=raw.get("prefix", "$"), forum=forum, excluded=excluded)
+    cfg = Config(
+        prefix=raw.get("prefix", "$"), forum=forum, honeypot=honeypot, excluded=excluded
+    )
 
     critical = {
-        "forum.server_id":    cfg.forum.server_id,
-        "forum.channel_id":   cfg.forum.channel_id,
+        "forum.server_id": cfg.forum.server_id,
+        "forum.channel_id": cfg.forum.channel_id,
         "forum.solved_tag_id": cfg.forum.solved_tag_id,
+        "honeypot.channel_id": cfg.honeypot.channel_id,
     }
     for name, val in critical.items():
         if val == 0:
-            logger.warning("config: '%s' is 0 - events for this value will be silently ignored", name)
+            logger.warning(
+                "config: '%s' is 0 - events for this value will be silently ignored",
+                name,
+            )
 
     return cfg
 

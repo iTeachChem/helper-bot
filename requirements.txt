@@ -1,8 +1,8 @@
 # discord
 discord.py>=2.4.0
 
-# turso — pure-python HTTP client, no native compilation needed
-requests>=2.32.0
+# turso — async HTTP client
+httpx>=0.27.0
 
 # config / env
 python-dotenv>=1.0.0

@@ -1,8 +1,12 @@
-import discord
+import logging
 import time
+import discord
 from discord.ext import commands
 from .db import increment_doubts
 from .config import config
+from .forum import apply_solved_tag
+
+logger = logging.getLogger(__name__)
 
 
 def solved(bot):
@@ -37,30 +41,35 @@ def solved(bot):
 
         valid_helpers = [m for m in helpers if not m.bot]
 
-        apply_solved_tag = getattr(bot, "_apply_solved_tag", None)
-        if apply_solved_tag is None:
-            await ctx.send("internal error: forum module not loaded. please contact an admin.")
+        try:
+            await apply_solved_tag(thread)
+        except discord.Forbidden:
+            await ctx.send("i don't have permission to lock this thread — please close it manually.")
+            return
+        except discord.HTTPException as e:
+            logger.error("solved: failed to apply solved tag on thread %s: %s", thread.id, e)
+            await ctx.send("something went wrong while closing the thread. please try again or contact an admin.")
             return
 
         try:
-            await apply_solved_tag(thread)
-
             for member in valid_helpers:
-                increment_doubts(user_id=member.id, username=member.display_name)
+                await increment_doubts(user_id=member.id, username=member.display_name)
+        except Exception as e:
+            logger.error("solved: db error while incrementing doubts: %s", e)
+            await ctx.send("thread closed, but there was a problem updating stats. please contact an admin.")
+            return
 
-            timestamp = int(time.time())
-            embed = discord.Embed(color=discord.Color.green())
-            embed.add_field(name="archived by", value=ctx.author.mention, inline=True)
-            if valid_helpers:
-                embed.add_field(
-                    name="solved by",
-                    value=" ".join(m.mention for m in valid_helpers),
-                    inline=True
-                )
-            embed.add_field(name="time", value=f"<t:{timestamp}:F>", inline=False)
-            await ctx.send(embed=embed)
-        except discord.Forbidden:
-            await ctx.send("i don't have permission to lock this thread please close it manually.")
+        timestamp = int(time.time())
+        embed = discord.Embed(color=discord.Color.green())
+        embed.add_field(name="archived by", value=ctx.author.mention, inline=True)
+        if valid_helpers:
+            embed.add_field(
+                name="solved by",
+                value=" ".join(m.mention for m in valid_helpers),
+                inline=True
+            )
+        embed.add_field(name="time", value=f"<t:{timestamp}:F>", inline=False)
+        await ctx.send(embed=embed)
 
     @solved_cmd.error
     async def solved_error(ctx, error):

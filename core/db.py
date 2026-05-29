@@ -1,6 +1,6 @@
 import os
 import logging
-import requests as _requests
+import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -54,13 +54,14 @@ class _Result:
         return self._rows
 
 
-def _run(*stmts):
+async def _run(*stmts):
     """Send one or more SQL statements in a single pipeline request."""
     requests_body = [
         {"type": "execute", "stmt": s} for s in stmts
     ] + [{"type": "close"}]
 
-    resp = _requests.post(_ENDPOINT, headers=_HEADERS, json={"requests": requests_body})
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(_ENDPOINT, headers=_HEADERS, json={"requests": requests_body})
     resp.raise_for_status()
 
     results = resp.json()["results"]
@@ -75,15 +76,14 @@ def _run(*stmts):
     return out
 
 
-def _exec(sql, params=()):
+async def _exec(sql, params=()):
     stmt = {"sql": sql, "args": [_to_arg(p) for p in params]}
-    return _run(stmt)[0]
+    return (await _run(stmt))[0]
 
 
-# ---------------------------------------------------------------------------
 
-def init_db() -> None:
-    _run(
+async def init_db() -> None:
+    await _run(
         {"sql": """
             CREATE TABLE IF NOT EXISTS bot_meta (
                 key   TEXT PRIMARY KEY,
@@ -99,7 +99,7 @@ def init_db() -> None:
                 questions_solved     INTEGER NOT NULL DEFAULT 0,
                 questions_skipped    INTEGER NOT NULL DEFAULT 0,
                 points               REAL    NOT NULL DEFAULT 0.0,
-                total_time_taken     TEXT             DEFAULT '0'
+                total_time_taken     REAL             NOT NULL DEFAULT 0.0
             )
         """},
         {"sql": "CREATE INDEX IF NOT EXISTS idx_doubts_solved    ON user_stats (doubts_solved DESC)"},
@@ -119,71 +119,62 @@ def init_db() -> None:
     logger.info("db: tables verified")
 
 
-def set_started_at() -> None:
+async def set_started_at() -> None:
     from datetime import datetime, timezone
     now = datetime.now(timezone.utc).isoformat()
-    _exec(
+    await _exec(
         "INSERT INTO bot_meta (key, value) VALUES ('started_at', ?) "
         "ON CONFLICT (key) DO UPDATE SET value = excluded.value",
         (now,),
     )
 
 
-def increment_doubts(user_id: int, username: str, count: int = 1) -> int:
-    row = _exec("""
+async def increment_doubts(user_id: int, username: str, count: int = 1) -> int:
+    row = (await _exec("""
         INSERT INTO user_stats (user_id, username, doubts_solved)
         VALUES (?, ?, ?)
         ON CONFLICT (user_id) DO UPDATE SET
             username      = excluded.username,
             doubts_solved = user_stats.doubts_solved + ?
         RETURNING doubts_solved
-    """, (str(user_id), username, count, count)).fetchone()
+    """, (str(user_id), username, count, count))).fetchone()
     return row["doubts_solved"]
 
 
-def get_user(user_id: int) -> dict | None:
-    return _exec(
+async def get_user(user_id: int) -> dict | None:
+    return (await _exec(
         "SELECT * FROM user_stats WHERE user_id = ?", (str(user_id),)
-    ).fetchone()
+    )).fetchone()
 
 
-_EXCLUDED = ("iteachchem",)
+async def get_user_with_ranks(user_id: int) -> dict | None:
+    """Fetch a user row together with both leaderboard ranks in one round-trip."""
+    row = (await _exec("""
+        WITH target AS (
+            SELECT * FROM user_stats WHERE user_id = ?
+        )
+        SELECT
+            t.*,
+            (SELECT COUNT(*) + 1 FROM user_stats
+             WHERE doubts_solved    > t.doubts_solved)    AS doubts_rank,
+            (SELECT COUNT(*) + 1 FROM user_stats
+             WHERE questions_solved > t.questions_solved) AS quiz_rank
+        FROM target t
+    """, (str(user_id),))).fetchone()
+    return row
 
 
-def get_leaderboard_doubts(limit: int = 10) -> list[dict]:
-    placeholders = ",".join("?" * len(_EXCLUDED))
-    return _exec(
+async def get_leaderboard_doubts(excluded: tuple[str, ...], limit: int = 10) -> list[dict]:
+    placeholders = ",".join("?" * len(excluded))
+    return (await _exec(
         f"SELECT * FROM user_stats WHERE username NOT IN ({placeholders}) ORDER BY doubts_solved DESC LIMIT ?",
-        (*_EXCLUDED, limit),
-    ).fetchall()
+        (*excluded, limit),
+    )).fetchall()
 
 
-def get_leaderboard_quiz(limit: int = 10) -> list[dict]:
-    placeholders = ",".join("?" * len(_EXCLUDED))
-    return _exec(
+async def get_leaderboard_quiz(excluded: tuple[str, ...], limit: int = 10) -> list[dict]:
+    placeholders = ",".join("?" * len(excluded))
+    return (await _exec(
         f"SELECT * FROM user_stats WHERE username NOT IN ({placeholders}) ORDER BY questions_solved DESC LIMIT ?",
-        (*_EXCLUDED, limit),
-    ).fetchall()
-
-
-def get_rank(user_id: int, column: str) -> int | None:
-    if column not in _RANK_COLUMNS:
-        raise ValueError(
-            f"get_rank(): '{column}' is not an allowed rank column. "
-            f"Allowed: {sorted(_RANK_COLUMNS)}"
-        )
-
-    exists = _exec(
-        "SELECT 1 FROM user_stats WHERE user_id = ?", (str(user_id),)
-    ).fetchone()
-    if not exists:
-        return None
-
-    row = _exec(f"""
-        SELECT COUNT(*) + 1 AS rank
-        FROM user_stats
-        WHERE {column} > (
-            SELECT {column} FROM user_stats WHERE user_id = ?
-        )
-    """, (str(user_id),)).fetchone()
-    return row["rank"] if row else None
+        (*excluded, limit),
+    )).fetchall()

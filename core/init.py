@@ -13,6 +13,8 @@ def create_bot(token: str, prefix: str):
     @bot.event
     async def on_ready():
         print(f"logged in as {bot.user}")
+        from .db import set_started_at
+        set_started_at()
 
     @bot.event
     async def on_message(message):

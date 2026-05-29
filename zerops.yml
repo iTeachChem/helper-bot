@@ -1,0 +1,22 @@
+zerops:
+  - setup: bot
+    type: python@3.12
+    build:
+      base: python@3.12
+      buildCommands:
+        - pip install --target=./vendor -r requirements.txt
+      deployFiles:
+        - core
+        - scripts
+        - main.py
+        - requirements.txt
+        - zerops.yml
+        - config.toml
+        - vendor
+      cache:
+        - vendor
+    run:
+      base: python@3.12
+      envVariables:
+        PYTHONPATH: /var/www/vendor
+      start: python main.py

@@ -8,5 +8,5 @@ __pycache__/
 *.db
 *.sqlite3
 *.log
-*.toml
-*db*
+*.db
+node_modules

@@ -30,7 +30,10 @@ def honeypot(bot):
 
         member = message.guild.get_member(message.author.id)
         if member is None:
-            logger.warning("honeypot: could not resolve member for user %s — skipping", message.author.id)
+            logger.warning(
+                "honeypot: could not resolve member for user %s - skipping",
+                message.author.id,
+            )
             return
 
         if _is_exempt(member):
@@ -38,10 +41,14 @@ def honeypot(bot):
 
         guild = message.guild
         try:
+            await message.delete()
+        except (discord.Forbidden, discord.HTTPException):
+            pass
+        try:
             await guild.ban(
                 member,
                 reason="Honeypot: posted in honeypot channel (softban — auto-unbanned)",
-                delete_message_days=1,
+                delete_message_seconds=604800,
             )
             await asyncio.sleep(_UNBAN_DELAY)
             await guild.unban(
@@ -51,8 +58,11 @@ def honeypot(bot):
             logger.warning("honeypot: softbanned %s (%s)", member, member.id)
         except discord.Forbidden:
             logger.error(
-                "honeypot: missing permissions to ban %s (%s) — ensure bot role is above target role",
-                member, member.id,
+                "honeypot: missing permissions to ban %s (%s) - ensure bot role is above target role",
+                member,
+                member.id,
             )
         except discord.HTTPException as e:
-            logger.error("honeypot: failed to softban %s (%s): %s", member, member.id, e)
+            logger.error(
+                "honeypot: failed to softban %s (%s): %s", member, member.id, e
+            )

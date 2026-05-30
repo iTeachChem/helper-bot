@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import discord
 from .config import config
@@ -27,6 +28,7 @@ def forum(bot):
             return
         if thread.parent_id != fc.channel_id:
             return
+        await asyncio.sleep(1)
 
         roles_to_ping: list[int] = []
         for tag in thread.applied_tags:

@@ -20,13 +20,20 @@ def stats(bot):
     @bot.command(name="stats", help="shows quiz and doubt stats for you or another member")
     async def stats_cmd(ctx, member: discord.Member = None):
         target = member or ctx.author
+        logger.info(
+            "stats: %s (%s) requested stats for %s (%s)",
+            ctx.author, ctx.author.id, target, target.id,
+        )
 
         try:
             row = await get_user_with_ranks(target.id)
         except Exception as e:
-            logger.error("stats: db error fetching user %s: %s", target.id, e)
+            logger.error("stats: db error fetching user %s (%s): %s", target, target.id, e)
             await ctx.send("couldn't fetch stats right now. please try again later.")
             return
+
+        if not row:
+            logger.info("stats: no data found for %s (%s)", target, target.id)
 
         embed = discord.Embed(
             title=f"{target.display_name}'s stats",
@@ -102,6 +109,11 @@ def stats(bot):
             await ctx.send("unknown leaderboard. use `+lb doubts` or `+lb quiz`.")
             return
 
+        logger.info(
+            "lb: %s (%s) requested %s leaderboard",
+            ctx.author, ctx.author.id, board,
+        )
+
         try:
             rows = await fetch(config.excluded)
         except Exception as e:
@@ -110,6 +122,7 @@ def stats(bot):
             return
 
         if not rows:
+            logger.info("lb: no data for %s leaderboard", board)
             await ctx.send("no data yet.")
             return
 

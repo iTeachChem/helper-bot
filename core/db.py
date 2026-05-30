@@ -55,20 +55,28 @@ class _Result:
 
 
 async def _run(*stmts):
-    """Send one or more SQL statements in a single pipeline request."""
     requests_body = [
         {"type": "execute", "stmt": s} for s in stmts
     ] + [{"type": "close"}]
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(_ENDPOINT, headers=_HEADERS, json={"requests": requests_body})
-    resp.raise_for_status()
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(_ENDPOINT, headers=_HEADERS, json={"requests": requests_body})
+        resp.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        logger.error("db: HTTP %s from Turso: %s", e.response.status_code, e)
+        raise
+    except httpx.RequestError as e:
+        logger.error("db: network error reaching Turso: %s", e)
+        raise
 
     results = resp.json()["results"]
     out = []
     for r in results:
         if r["type"] == "error":
-            raise RuntimeError(r["error"]["message"])
+            msg = r["error"]["message"]
+            logger.error("db: Turso returned query error: %s", msg)
+            raise RuntimeError(msg)
         if r["response"]["type"] != "execute":
             continue
         res = r["response"]["result"]
@@ -79,7 +87,6 @@ async def _run(*stmts):
 async def _exec(sql, params=()):
     stmt = {"sql": sql, "args": [_to_arg(p) for p in params]}
     return (await _run(stmt))[0]
-
 
 
 async def init_db() -> None:
@@ -99,7 +106,7 @@ async def init_db() -> None:
                 questions_solved     INTEGER NOT NULL DEFAULT 0,
                 questions_skipped    INTEGER NOT NULL DEFAULT 0,
                 points               REAL    NOT NULL DEFAULT 0.0,
-                total_time_taken     REAL             NOT NULL DEFAULT 0.0
+                total_time_taken     REAL    NOT NULL DEFAULT 0.0
             )
         """},
         {"sql": "CREATE INDEX IF NOT EXISTS idx_doubts_solved    ON user_stats (doubts_solved DESC)"},
@@ -127,6 +134,7 @@ async def set_started_at() -> None:
         "ON CONFLICT (key) DO UPDATE SET value = excluded.value",
         (now,),
     )
+    logger.info("db: started_at set to %s", now)
 
 
 async def increment_doubts(user_id: int, username: str, count: int = 1) -> int:
@@ -148,7 +156,6 @@ async def get_user(user_id: int) -> dict | None:
 
 
 async def get_user_with_ranks(user_id: int) -> dict | None:
-    """Fetch a user row together with both leaderboard ranks in one round-trip."""
     row = (await _exec("""
         WITH target AS (
             SELECT * FROM user_stats WHERE user_id = ?

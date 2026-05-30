@@ -29,6 +29,10 @@ def solved(bot):
         can_manage     = ctx.channel.permissions_for(ctx.author).manage_threads
 
         if not (is_op or is_whitelisted or can_manage):
+            logger.info(
+                "solved: %s (%s) tried to close thread '%s' (%s) but lacks permission",
+                ctx.author, ctx.author.id, thread.name, thread.id,
+            )
             await ctx.send("only the thread op or a moderator can mark a thread as solved.")
             return
 
@@ -41,23 +45,45 @@ def solved(bot):
 
         valid_helpers = [m for m in helpers if not m.bot]
 
+        logger.info(
+            "solved: %s (%s) closing thread '%s' (%s) — helpers: %s",
+            ctx.author, ctx.author.id, thread.name, thread.id,
+            [str(m) for m in valid_helpers] or "none",
+        )
+
         try:
             await apply_solved_tag(thread)
         except discord.Forbidden:
+            logger.error(
+                "solved: missing permissions to apply solved tag on thread '%s' (%s)",
+                thread.name, thread.id,
+            )
             await ctx.send("i don't have permission to lock this thread — please close it manually.")
             return
         except discord.HTTPException as e:
-            logger.error("solved: failed to apply solved tag on thread %s: %s", thread.id, e)
+            logger.error(
+                "solved: HTTP error applying solved tag on thread '%s' (%s): %s",
+                thread.name, thread.id, e,
+            )
             await ctx.send("something went wrong while closing the thread. please try again or contact an admin.")
             return
 
         try:
             for member in valid_helpers:
-                await increment_doubts(user_id=member.id, username=member.display_name)
+                new_total = await increment_doubts(user_id=member.id, username=member.display_name)
+                logger.info(
+                    "solved: incremented doubts for %s (%s) — new total: %s",
+                    member, member.id, new_total,
+                )
         except Exception as e:
             logger.error("solved: db error while incrementing doubts: %s", e)
             await ctx.send("thread closed, but there was a problem updating stats. please contact an admin.")
             return
+
+        logger.info(
+            "solved: thread '%s' (%s) successfully closed by %s (%s)",
+            thread.name, thread.id, ctx.author, ctx.author.id,
+        )
 
         timestamp = int(time.time())
         embed = discord.Embed(color=discord.Color.green())

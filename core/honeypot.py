@@ -9,7 +9,6 @@ _UNBAN_DELAY = 3
 
 
 def _is_exempt(member: discord.Member) -> bool:
-    """Return True if the member should never be actioned by the honeypot."""
     if member.guild_permissions.administrator:
         return True
     exempt = config.honeypot.exempt_roles
@@ -21,11 +20,13 @@ def honeypot(bot):
 
     @bot.event
     async def on_message(message: discord.Message):
+  
+        if message.author.bot:
+            await bot.process_commands(message)
+            return
 
         await bot.process_commands(message)
 
-        if message.author.bot:
-            return
         if not hc.channel_id or message.channel.id != hc.channel_id:
             return
 
@@ -42,19 +43,17 @@ def honeypot(bot):
             return
 
         guild = message.guild
-
         logger.info(
-            "honeypot: actioning %s (%s) in #%s",
+            "honeypot: actioning %s (%s) - posted in #%s",
             member,
             member.id,
             message.channel,
         )
 
         try:
-
             await guild.ban(
                 member,
-                reason="Honeypot: posted in honeypot channel (softban — auto-unbanned)",
+                reason="Honeypot: posted in honeypot channel (softban - auto-unbanned)",
                 delete_message_days=1,
             )
             await asyncio.sleep(_UNBAN_DELAY)

@@ -20,25 +20,14 @@ def stats(bot):
     @bot.command(name="stats", help="shows quiz and doubt stats for you or another member")
     async def stats_cmd(ctx, member: discord.Member = None):
         target = member or ctx.author
-        logger.info(
-            "stats: %s (%s) requested stats for %s (%s)",
-            ctx.author, ctx.author.id, target, target.id,
-        )
-
         try:
             row = await get_user_with_ranks(target.id)
         except Exception as e:
-            logger.error("stats: db error fetching user %s (%s): %s", target, target.id, e)
+            logger.error("stats: db error fetching user %s: %s", target.id, e)
             await ctx.send("couldn't fetch stats right now. please try again later.")
             return
 
-        if not row:
-            logger.info("stats: no data found for %s (%s)", target, target.id)
-
-        embed = discord.Embed(
-            title=f"{target.display_name}'s stats",
-            color=discord.Color.blurple()
-        )
+        embed = discord.Embed(title=f"{target.display_name}'s stats", color=discord.Color.blurple())
         embed.set_thumbnail(url=target.display_avatar.url)
 
         if not row:
@@ -46,40 +35,28 @@ def stats(bot):
             await ctx.send(embed=embed)
             return
 
-        attempted    = row["questions_attempted"]
-        solved       = row["questions_solved"]
-        skipped      = row["questions_skipped"]
-        points       = row["points"]
-        total_secs   = row["total_time_taken"] or 0.0
-        doubts       = row["doubts_solved"]
-        quiz_rank    = f"#{row['quiz_rank']}"   if row["quiz_rank"]    is not None else "n/a"
-        doubts_rank  = f"#{row['doubts_rank']}" if row["doubts_rank"]  is not None else "n/a"
+        attempted  = row["questions_attempted"]
+        solved     = row["questions_solved"]
+        skipped    = row["questions_skipped"]
+        points     = row["points"]
+        total_secs = row["total_time_taken"] or 0.0
+        doubts     = row["doubts_solved"]
+        quiz_rank   = f"#{row['quiz_rank']}"   if row["quiz_rank"]   is not None else "n/a"
+        doubts_rank = f"#{row['doubts_rank']}" if row["doubts_rank"] is not None else "n/a"
 
         accuracy   = (solved  / attempted * 100) if attempted > 0 else 0.0
         skip_pct   = (skipped / attempted * 100) if attempted > 0 else 0.0
         avg_points = (points  / attempted)       if attempted > 0 else 0.0
         avg_secs   = (total_secs / attempted)    if attempted > 0 else 0.0
 
-        desc = (
-            f"**rankings**\n"
-            f"quiz rank: `{quiz_rank}`\n"
-            f"doubts rank: `{doubts_rank}`\n\n"
-            f"**doubts**\n"
-            f"solved: `{doubts}`\n\n"
-            f"**performance**\n"
-            f"accuracy: `{accuracy:.2f}%`\n"
-            f"skipped: `{skip_pct:.2f}%`\n"
-            f"avg points: `{avg_points:.2f}`\n"
-            f"avg time: `{avg_secs:.2f}s`\n\n"
-            f"**quiz**\n"
-            f"attempted: `{attempted}`\n"
-            f"solved: `{solved}`\n"
-            f"skipped: `{skipped}`\n"
-            f"points: `{int(points)}`\n"
-            f"total time: `{format_time(total_secs)}`"
+        embed.description = (
+            f"**rankings**\nquiz rank: `{quiz_rank}`\ndoubts rank: `{doubts_rank}`\n\n"
+            f"**doubts**\nsolved: `{doubts}`\n\n"
+            f"**performance**\naccuracy: `{accuracy:.2f}%`\nskipped: `{skip_pct:.2f}%`\n"
+            f"avg points: `{avg_points:.2f}`\navg time: `{avg_secs:.2f}s`\n\n"
+            f"**quiz**\nattempted: `{attempted}`\nsolved: `{solved}`\nskipped: `{skipped}`\n"
+            f"points: `{int(points)}`\ntotal time: `{format_time(total_secs)}`"
         )
-
-        embed.description = desc
         await ctx.send(embed=embed)
 
     @stats_cmd.error
@@ -94,25 +71,13 @@ def stats(bot):
             return
 
         board = board.lower()
-
         if board == "doubts":
-            fetch = get_leaderboard_doubts
-            title = "top doubt solvers"
-            key   = "doubts_solved"
-            label = "doubts solved"
+            fetch, title, key, label = get_leaderboard_doubts, "top doubt solvers", "doubts_solved", "doubts solved"
         elif board == "quiz":
-            fetch = get_leaderboard_quiz
-            title = "top quiz solvers"
-            key   = "questions_solved"
-            label = "questions solved"
+            fetch, title, key, label = get_leaderboard_quiz, "top quiz solvers", "questions_solved", "questions solved"
         else:
             await ctx.send("unknown leaderboard. use `+lb doubts` or `+lb quiz`.")
             return
-
-        logger.info(
-            "lb: %s (%s) requested %s leaderboard",
-            ctx.author, ctx.author.id, board,
-        )
 
         try:
             rows = await fetch(config.excluded)
@@ -122,18 +87,12 @@ def stats(bot):
             return
 
         if not rows:
-            logger.info("lb: no data for %s leaderboard", board)
             await ctx.send("no data yet.")
             return
 
-        lines = [
-            f"`#{i}` **{row['username']}** {row[key]} {label}"
-            for i, row in enumerate(rows, 1)
-        ]
-
         embed = discord.Embed(
             title=title,
-            description="\n".join(lines),
+            description="\n".join(f"`#{i}` **{row['username']}** {row[key]} {label}" for i, row in enumerate(rows, 1)),
             color=discord.Color.blurple()
         )
         await ctx.send(embed=embed)

@@ -6,7 +6,6 @@ logger = logging.getLogger(__name__)
 
 
 async def apply_solved_tag(thread: discord.Thread) -> None:
-    """Append the solved tag to a thread and lock+archive it."""
     fc = config.forum
     if not fc.solved_tag_id or not isinstance(thread.parent, discord.ForumChannel):
         await thread.edit(locked=True, archived=True)
@@ -29,22 +28,11 @@ def forum(bot):
         if thread.parent_id != fc.channel_id:
             return
 
-        logger.info(
-            "forum: new thread '%s' (id: %s) created by %s (id: %s)",
-            thread.name, thread.id, thread.owner, thread.owner_id,
-        )
-
         roles_to_ping: list[int] = []
         for tag in thread.applied_tags:
             role_id = fc.tag_roles.get(tag.id)
             if role_id and role_id not in roles_to_ping:
                 roles_to_ping.append(role_id)
-
-        if roles_to_ping:
-            logger.info(
-                "forum: pinging roles %s for thread %s",
-                roles_to_ping, thread.id,
-            )
 
         mention_str = " ".join(f"<@&{rid}>" for rid in roles_to_ping) if roles_to_ping else None
 
@@ -60,12 +48,6 @@ def forum(bot):
         try:
             await thread.send(content=mention_str, embed=embed)
         except discord.Forbidden:
-            logger.warning(
-                "forum: missing permissions to send in thread %s (%s)",
-                thread.id, thread.name,
-            )
+            logger.warning("forum: missing permissions to send in thread %s (%s)", thread.id, thread.name)
         except discord.HTTPException as e:
-            logger.error(
-                "forum: failed to send in thread %s (%s): %s",
-                thread.id, thread.name, e,
-            )
+            logger.error("forum: failed to send in thread %s (%s): %s", thread.id, thread.name, e)

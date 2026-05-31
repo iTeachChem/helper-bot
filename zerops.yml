@@ -20,5 +20,5 @@ zerops:
         PYTHONPATH: /var/www/vendor
       ports:
         - port: 8080
-      httpSupport: true
+          httpSupport: true
       start: python main.py

@@ -1,20 +1,35 @@
 import logging
 import discord
 from discord.ext import commands
-from flask import Flask, jsonify
+from http.server import BaseHTTPRequestHandler, HTTPServer
+import json
 import os
 
 logger = logging.getLogger(__name__)
-health_app = Flask(__name__)
 
-@health_app.route("/health")
-def health():
-    return jsonify({"status": "Working ok"}), 200
+
+class _HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == "/health":
+            body = json.dumps({"status": "Working ok"}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def log_message(self, format, *args):
+        pass  # suppress per-request stderr noise
+
 
 def start_health_server():
     port = int(os.getenv("HEALTH_PORT", 8080))
-    logger.info("starting on port %d", port)
-    health_app.run(host="0.0.0.0", port=port, use_reloader=False)
+    server = HTTPServer(("0.0.0.0", port), _HealthHandler)
+    logger.info("health server listening on port %d", port)
+    server.serve_forever()
 
 
 def create_bot(token: str, prefix: str):

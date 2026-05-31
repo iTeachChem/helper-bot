@@ -6,3 +6,13 @@ httpx>=0.27.0
 
 # config / env
 python-dotenv>=1.0.0
+
+# health endpoint
+flask>=3.0.0
+
+# image generation
+Pillow>=10.0.0
+numpy>=1.26.0
+
+# avatar download 
+aiohttp>=3.9.0

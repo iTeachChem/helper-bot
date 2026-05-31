@@ -1,8 +1,20 @@
 import logging
 import discord
 from discord.ext import commands
+from flask import Flask, jsonify
+import os
 
 logger = logging.getLogger(__name__)
+health_app = Flask(__name__)
+
+@health_app.route("/health")
+def health():
+    return jsonify({"status": "Working ok"}), 200
+
+def start_health_server():
+    port = int(os.getenv("HEALTH_PORT", 8080))
+    logger.info("starting on port %d", port)
+    health_app.run(host="0.0.0.0", port=port, use_reloader=False)
 
 
 def create_bot(token: str, prefix: str):
@@ -16,6 +28,10 @@ def create_bot(token: str, prefix: str):
     async def setup_hook():
         from .db import init_db, set_started_at
         await init_db()
+        """
+        ## remove comment below this before putting PR
+        ## Keep commented during testing to avoid resetting the started_at time in db on every reload.
+        """
         await set_started_at()
         logger.info("setup_hook: db initialised and started_at recorded")
 

@@ -18,3 +18,7 @@ whitelist = [1035556259417571408, 877351272251023440, 859821981057679410]
 [honeypot]
 channel_id = 1509927815284391936
 exempt_roles = [1259178753184104611]
+
+[urls]
+site_url = "https://iteachchem.vercel.app"
+uptime_url = "https://iteachchem.vercel.app/status"

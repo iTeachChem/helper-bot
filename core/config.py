@@ -19,6 +19,10 @@ class HoneypotConfig:
     channel_id: int
     exempt_roles: tuple[int, ...]
 
+@dataclass(frozen=True)
+class UrlsConfig:
+    site_url: str
+    uptime_url: str
 
 @dataclass(frozen=True)
 class Config:
@@ -26,6 +30,7 @@ class Config:
     forum: ForumConfig
     honeypot: HoneypotConfig
     excluded: tuple[str, ...]
+    urls: UrlsConfig
 
 
 def _load() -> Config:
@@ -47,10 +52,20 @@ def _load() -> Config:
         exempt_roles=tuple(int(r) for r in hc.get("exempt_roles", [])),
     )
 
+    uc = raw.get("urls", {})
+    urls = UrlsConfig(
+        site_url=uc.get("site_url", ""),
+        uptime_url=uc.get("uptime_url", ""),
+    )
+
     excluded = tuple(raw.get("excluded", []))
 
     cfg = Config(
-        prefix=raw.get("prefix", "$"), forum=forum, honeypot=honeypot, excluded=excluded
+        prefix=raw.get("prefix", "$"),
+        forum=forum,
+        honeypot=honeypot,
+        excluded=excluded,
+        urls=urls,
     )
 
     critical = {

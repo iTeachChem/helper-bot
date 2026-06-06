@@ -92,13 +92,13 @@ def solved(bot):
             await ctx.send("this command can only be used inside the designated forum channel.")
             return
         
-        if not thread.archived or not thread.locked and not thread.applied_tags or all(tag.name.lower() != "solved" for tag in thread.applied_tags):
+        if not thread.locked and not any(tag.name.lower() == "solved" for tag in thread.applied_tags):
             await ctx.send("this thread is not closed.")
             return
         
         try:
-            await thread.applied_tags.remove(discord.utils.get(thread.parent.available_tags, name="Solved"))
-            await thread.edit(archived=False, locked=False)
+            new_tags = [tag for tag in thread.applied_tags if tag.name != "Solved"]
+            await thread.edit(locked=False, archived=False, applied_tags=new_tags)
             em = discord.Embed(title="Post unlocked and unarchived successfully!", color=0x575287)
             em.add_field(name="Unarchived by", value=f"{ctx.author.mention} ({ctx.author.id})")
             await ctx.send(embed=em)

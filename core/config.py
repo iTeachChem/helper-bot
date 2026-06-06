@@ -25,12 +25,17 @@ class UrlsConfig:
     uptime_url: str
 
 @dataclass(frozen=True)
+class CooldownExemptConfig:
+    user_ids: tuple[int, ...]
+
+@dataclass(frozen=True)
 class Config:
     prefix: str
     forum: ForumConfig
     honeypot: HoneypotConfig
     excluded: tuple[str, ...]
     urls: UrlsConfig
+    cooldown_exempt: CooldownExemptConfig
 
 
 def _load() -> Config:
@@ -66,6 +71,9 @@ def _load() -> Config:
         honeypot=honeypot,
         excluded=excluded,
         urls=urls,
+        cooldown_exempt=CooldownExemptConfig(
+            user_ids=tuple(int(id) for id in raw.get("cooldown_exempt_ids", {}).get("user_ids", []))
+        )
     )
 
     critical = {

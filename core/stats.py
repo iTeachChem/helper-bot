@@ -34,6 +34,7 @@ async def _fetch_avatar(session: aiohttp.ClientSession, url: str) -> bytes | Non
 def stats(bot):
 
     @bot.command(name="stats", help="show quiz & doubt stats for you or another member")
+    @commands.cooldown(1, 10, commands.BucketType.user)
     async def stats_cmd(ctx: commands.Context, member: discord.Member = None):
         target = member or ctx.author
 
@@ -117,6 +118,7 @@ def stats(bot):
 
     # leaderboard command for doubts and quiz
     @bot.command(name="lb", help="leaderboard — `+lb doubts` or `+lb quiz`")
+    @commands.cooldown(1, 10, commands.BucketType.user)
     async def lb_cmd(ctx, board: str = None):
         if not board:
             await ctx.send("usage: `+lb doubts` or `+lb quiz`")

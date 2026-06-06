@@ -10,5 +10,3 @@ __pycache__/
 *.log
 *.db
 node_modules
-*.txt
-changes.md

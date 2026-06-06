@@ -41,6 +41,10 @@ def solved(bot):
 
         valid_helpers = [m for m in helpers if not m.bot]
 
+        if thread.applied_tags and any(tag.name.lower() == "solved" for tag in thread.applied_tags):
+            await ctx.send("this thread is already marked as solved.")
+            return
+
         try:
             await apply_solved_tag(thread)
         except discord.Forbidden:
@@ -67,8 +71,38 @@ def solved(bot):
             embed.add_field(name="solved by", value=" ".join(m.mention for m in valid_helpers), inline=True)
         embed.add_field(name="time", value=f"<t:{timestamp}:F>", inline=False)
         await ctx.send(embed=embed)
+        await thread.edit(archived=True)
 
     @solved_cmd.error
     async def solved_error(ctx, error):
         if isinstance(error, commands.BadArgument):
             await ctx.send("couldn't find one of those users. make sure you're mentioning them properly.")
+
+
+    @bot.command()
+    @commands.has_permissions(manage_threads=True)
+    async def reopen(ctx: commands.Context):
+        if not isinstance(ctx.channel, discord.Thread):
+            await ctx.send("this command can only be used inside a forum thread.")
+            return
+
+        thread: discord.Thread = ctx.channel
+
+        if thread.parent_id != fc.channel_id:
+            await ctx.send("this command can only be used inside the designated forum channel.")
+            return
+        
+        if not thread.archived or not thread.locked and not thread.applied_tags or all(tag.name.lower() != "solved" for tag in thread.applied_tags):
+            await ctx.send("this thread is not closed.")
+            return
+        
+        try:
+            await thread.applied_tags.remove(discord.utils.get(thread.parent.available_tags, name="Solved"))
+            await thread.edit(archived=False, locked=False)
+            em = discord.Embed(title="Post unlocked and unarchived successfully!", color=0x575287)
+            em.add_field(name="Unarchived by", value=f"{ctx.author.mention} ({ctx.author.id})")
+            await ctx.send(embed=em)
+
+        except Exception as e:
+            logger.error("reopen: error while reopening thread '%s' (%s): %s", thread.name, thread.id, e)
+            await ctx.send("something went wrong while reopening the thread. please try again or contact an admin.")

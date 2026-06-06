@@ -9,14 +9,14 @@ logger = logging.getLogger(__name__)
 async def apply_solved_tag(thread: discord.Thread) -> None:
     fc = config.forum
     if not fc.solved_tag_id or not isinstance(thread.parent, discord.ForumChannel):
-        await thread.edit(locked=True, archived=True)
+        await thread.edit(locked=True)
         return
 
     solved_tag = discord.utils.get(thread.parent.available_tags, id=fc.solved_tag_id)
     current_tags = list(thread.applied_tags)
     if solved_tag and solved_tag not in current_tags:
         current_tags.append(solved_tag)
-    await thread.edit(locked=True, archived=True, applied_tags=current_tags)
+    await thread.edit(locked=True, applied_tags=current_tags)
 
 
 def forum(bot):

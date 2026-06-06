@@ -58,17 +58,6 @@ def create_bot(token: str, prefix: str):
 
     # NOTE: on_message lives exclusively in honeypot.py
 
-    @bot.event
-    async def on_command_error(ctx, error):
-        if hasattr(ctx.command, "on_error"):
-            return
-        if isinstance(error, commands.CommandNotFound):
-            return
-        logger.error(
-            "command_error: %s raised in +%s by %s: %s",
-            type(error).__name__, ctx.command, ctx.author, error,
-        )
-
     return bot
 
 

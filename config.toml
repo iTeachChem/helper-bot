@@ -22,3 +22,11 @@ exempt_roles = [1259178753184104611]
 [urls]
 site_url = "https://iteachchem.vercel.app"
 uptime_url = "https://iteachchem.vercel.app/status"
+
+[cooldown_exempt_ids]
+user_ids = [
+    989106479699210310, # Nermo
+    859821981057679410,  # Picchiii
+    877351272251023440, # Krishna
+    1035556259417571408 # iTeachChem
+]

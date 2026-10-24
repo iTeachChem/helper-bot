@@ -207,19 +207,25 @@ impl Db {
         Ok(())
     }
 
-    pub async fn increment_doubts(&self, user_id: u64, username: &str, count: i64) -> anyhow::Result<i64> {
-        let rows = self
-            .exec(
+    /// Credit one solved doubt to each user. A single statement, so it's all or nothing.
+    pub async fn increment_doubts(&self, users: &[(u64, &str)]) -> anyhow::Result<()> {
+        if users.is_empty() {
+            return Ok(());
+        }
+        let values = vec!["(?, ?, 1)"; users.len()].join(", ");
+        let params: Vec<Value> = users.iter().flat_map(|(id, name)| [id.to_string().into(), (*name).into()]).collect();
+        self.exec(
+            &format!(
                 "INSERT INTO user_stats (user_id, username, doubts_solved)
-                 VALUES (?, ?, ?)
+                 VALUES {values}
                  ON CONFLICT (user_id) DO UPDATE SET
                      username      = excluded.username,
-                     doubts_solved = user_stats.doubts_solved + ?
-                 RETURNING doubts_solved",
-                &[user_id.to_string().into(), username.into(), count.into(), count.into()],
-            )
-            .await?;
-        Ok(rows.first().and_then(|r| r.get("doubts_solved")).map_or(0, Value::as_i64))
+                     doubts_solved = user_stats.doubts_solved + excluded.doubts_solved"
+            ),
+            &params,
+        )
+        .await?;
+        Ok(())
     }
 
     pub async fn get_user_with_ranks(&self, user_id: u64) -> anyhow::Result<Option<Row>> {

@@ -3,8 +3,12 @@ use std::time::Instant;
 use poise::serenity_prelude as serenity;
 use poise::CreateReply;
 
-use super::{guild_channel, parse_member, tag_names};
+use super::{guild_channel, parse_member, solved_tag_ids, tag_names};
 use crate::{Context, Error};
+
+/// Discord's per-embed limits; the character budget leaves room for the title.
+const EMBED_MAX_FIELDS: usize = 25;
+const EMBED_FIELD_CHARS: usize = 5800;
 
 /// checks the bot's response time
 #[poise::command(prefix_command)]
@@ -71,6 +75,8 @@ pub async fn unsolved(ctx: Context<'_>, #[rest] _rest: Option<String>) -> Result
     let now = chrono::Utc::now().timestamp();
     let week_ago = now - 7 * 24 * 3600;
 
+    let solved_ids = solved_tag_ids(ctx, forum.as_ref());
+
     let active = guild_id.get_active_threads(ctx.http()).await?;
     let mut unsolved = Vec::new();
     for thread in &active.threads {
@@ -88,10 +94,10 @@ pub async fn unsolved(ctx: Context<'_>, #[rest] _rest: Option<String>) -> Result
         if created <= week_ago || created > now {
             continue;
         }
-        let tags = tag_names(forum.as_ref(), thread);
-        if tags.iter().any(|t| t.eq_ignore_ascii_case("solved")) {
+        if thread.applied_tags.iter().any(|t| solved_ids.contains(t)) {
             continue;
         }
+        let tags = tag_names(forum.as_ref(), thread);
         let owner = match thread.owner_id {
             Some(id) => ctx.cache().user(id).map(|u| u.name.clone()).unwrap_or_else(|| format!("<@{id}>")),
             None => "Unknown".to_string(),
@@ -108,22 +114,57 @@ pub async fn unsolved(ctx: Context<'_>, #[rest] _rest: Option<String>) -> Result
         return Ok(());
     }
 
-    let color = if unsolved.len() > 5 { 0xff0000 } else { 0xffff00 };
-    for (page, chunk) in unsolved.chunks(25).enumerate() {
+    let fields: Vec<(String, String)> = unsolved
+        .into_iter()
+        .map(|(name, url, tags, owner, created)| {
+            (name, format!("OP: {owner}\nTags: {}\nLink: {url}\nCreated: <t:{created}:R>", tags.join(" ")))
+        })
+        .collect();
+    let color = if fields.len() > 5 { 0xff0000 } else { 0xffff00 };
+    for (page, chunk) in embed_pages(&fields).into_iter().enumerate() {
         let title = if page == 0 {
             format!("Unsolved Threads in {forum_name} (Last Week)")
         } else {
             format!("Unsolved Threads in {forum_name} (Last Week) - Continued")
         };
         let mut embed = serenity::CreateEmbed::new().title(title).color(color);
-        for (name, url, tags, owner, created) in chunk {
-            embed = embed.field(
-                name,
-                format!("OP: {owner}\nTags: {}\nLink: {url}\nCreated: <t:{created}:R>", tags.join(" ")),
-                false,
-            );
+        for (name, value) in chunk {
+            embed = embed.field(name, value, false);
         }
         ctx.send(CreateReply::default().embed(embed)).await?;
     }
     Ok(())
+}
+
+/// Split fields into embeds that stay under both the field count and total character limits.
+fn embed_pages(fields: &[(String, String)]) -> Vec<&[(String, String)]> {
+    let mut pages = Vec::new();
+    let (mut start, mut chars) = (0, 0);
+    for (i, (name, value)) in fields.iter().enumerate() {
+        let len = name.chars().count() + value.chars().count();
+        if i > start && (i - start == EMBED_MAX_FIELDS || chars + len > EMBED_FIELD_CHARS) {
+            pages.push(&fields[start..i]);
+            (start, chars) = (i, 0);
+        }
+        chars += len;
+    }
+    if start < fields.len() {
+        pages.push(&fields[start..]);
+    }
+    pages
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn embed_pages_respect_limits() {
+        let field = |n: usize| ("t".repeat(100), "v".repeat(n));
+        let small: Vec<_> = (0..30).map(|_| field(10)).collect();
+        assert_eq!(embed_pages(&small).iter().map(|p| p.len()).collect::<Vec<_>>(), [25, 5]);
+        let big: Vec<_> = (0..25).map(|_| field(130)).collect();
+        assert!(embed_pages(&big).iter().all(|p| p.iter().map(|(a, b)| a.len() + b.len()).sum::<usize>() <= EMBED_FIELD_CHARS));
+        assert!(embed_pages(&[]).is_empty());
+    }
 }

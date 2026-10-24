@@ -1,9 +1,12 @@
 use poise::serenity_prelude as serenity;
 use poise::CreateReply;
 
-use super::{author_can_manage_threads, current_thread, error_embed, guild_channel, looks_like_user, parse_member, tag_names};
+use super::{author_can_manage_threads, error_embed, forum_thread, guild_channel, looks_like_user, parse_member, solved_tag_ids};
 use crate::error::is_forbidden;
 use crate::{Context, Error};
+
+/// Discord allows at most this many tags on a forum post.
+const MAX_APPLIED_TAGS: usize = 5;
 
 /// Lock the thread and add the configured Solved tag (when it's a forum post).
 async fn apply_solved_tag(
@@ -17,6 +20,8 @@ async fn apply_solved_tag(
         let mut tags = thread.applied_tags.clone();
         let exists = forum.available_tags.iter().any(|t| t.id.get() == tag_id);
         if exists && !tags.iter().any(|t| t.get() == tag_id) {
+            // make room for Solved rather than have discord reject the edit
+            tags.truncate(MAX_APPLIED_TAGS - 1);
             tags.push(serenity::ForumTagId::new(tag_id));
         }
         edit = edit.applied_tags(tags);
@@ -29,37 +34,26 @@ async fn apply_solved_tag(
 pub async fn solved(ctx: Context<'_>, #[rest] helpers: Option<String>) -> Result<(), Error> {
     let fc = &ctx.data().config.forum;
 
-    let Some(thread) = current_thread(ctx).await? else {
-        ctx.say("this command can only be used inside a forum thread.").await?;
-        return Ok(());
-    };
-    let Some(parent_id) = thread.parent_id.filter(|p| p.get() == fc.channel_id) else {
-        ctx.say("this command can only be used inside the designated forum channel.").await?;
-        return Ok(());
-    };
+    let Some((thread, parent_id)) = forum_thread(ctx).await? else { return Ok(()) };
 
     let author = ctx.author().id;
     let is_op = thread.owner_id == Some(author);
     let is_whitelisted = fc.whitelist.contains(&author.get());
-    if !(is_op || is_whitelisted || author_can_manage_threads(ctx, thread.id).await) {
+    if !(is_op || is_whitelisted || author_can_manage_threads(ctx, parent_id).await) {
         ctx.say("only the thread op or a moderator can mark a thread as solved.").await?;
         return Ok(());
     }
 
-    // mentions / ids must resolve; plain words ("thanks") are ignored
+    // only mentions / ids count as helpers and must resolve; plain words ("thanks so much")
+    // are ignored, so they can't match some member's name
     let mut members: Vec<serenity::Member> = Vec::new();
-    for token in helpers.as_deref().unwrap_or("").split_whitespace() {
-        match parse_member(ctx, token).await {
-            Some(m) => {
-                if !members.iter().any(|x| x.user.id == m.user.id) {
-                    members.push(m);
-                }
-            }
-            None if looks_like_user(token) => {
-                ctx.say("couldn't find one of those users. make sure you're mentioning them properly.").await?;
-                return Ok(());
-            }
-            None => {}
+    for token in helpers.as_deref().unwrap_or("").split_whitespace().filter(|t| looks_like_user(t)) {
+        let Some(m) = parse_member(ctx, token).await else {
+            ctx.say("couldn't find one of those users. make sure you're mentioning them properly.").await?;
+            return Ok(());
+        };
+        if !members.iter().any(|x| x.user.id == m.user.id) {
+            members.push(m);
         }
     }
 
@@ -74,7 +68,8 @@ pub async fn solved(ctx: Context<'_>, #[rest] helpers: Option<String>) -> Result
     let helpers: Vec<_> = members.into_iter().filter(|m| !m.user.bot).collect();
 
     let forum = guild_channel(ctx, parent_id).await;
-    if tag_names(forum.as_ref(), &thread).iter().any(|t| t.eq_ignore_ascii_case("solved")) {
+    let solved_ids = solved_tag_ids(ctx, forum.as_ref());
+    if thread.applied_tags.iter().any(|t| solved_ids.contains(t)) {
         ctx.say("this thread is already marked as solved.").await?;
         return Ok(());
     }
@@ -90,12 +85,18 @@ pub async fn solved(ctx: Context<'_>, #[rest] helpers: Option<String>) -> Result
         return Ok(());
     }
 
-    for m in &helpers {
-        if let Err(e) = ctx.data().db.increment_doubts(m.user.id.get(), m.display_name(), 1).await {
-            tracing::error!("solved: db error while incrementing doubts: {e}");
-            ctx.say("thread closed, but there was a problem updating stats. please contact an admin.").await?;
-            return Ok(());
+    let credits: Vec<(u64, &str)> = helpers.iter().map(|m| (m.user.id.get(), m.display_name())).collect();
+    if let Err(e) = ctx.data().db.increment_doubts(&credits).await {
+        tracing::error!("solved: db error while incrementing doubts: {e}");
+        // nobody was credited; undo the lock/tag so `+solved` can simply be run again
+        let revert = serenity::EditThread::new().locked(false).applied_tags(thread.applied_tags.clone());
+        if let Err(e) = thread.id.edit_thread(ctx, revert).await {
+            tracing::error!("solved: failed to revert thread '{}' ({}): {e}", thread.name, thread.id);
+            ctx.say("there was a problem updating stats and the thread is still locked. please contact an admin.").await?;
+        } else {
+            ctx.say("there was a problem updating stats, so the thread wasn't closed. please try again.").await?;
         }
+        return Ok(());
     }
 
     let mut embed = serenity::CreateEmbed::new()
@@ -114,33 +115,22 @@ pub async fn solved(ctx: Context<'_>, #[rest] helpers: Option<String>) -> Result
 
 #[poise::command(prefix_command)]
 pub async fn reopen(ctx: Context<'_>, #[rest] _rest: Option<String>) -> Result<(), Error> {
-    if !author_can_manage_threads(ctx, ctx.channel_id()).await {
+    let Some((thread, parent_id)) = forum_thread(ctx).await? else { return Ok(()) };
+
+    if !author_can_manage_threads(ctx, parent_id).await {
         error_embed(ctx, "Permission denied", "You don't have permission to use this command.").await;
         return Ok(());
     }
 
-    let fc = &ctx.data().config.forum;
-    let Some(thread) = current_thread(ctx).await? else {
-        ctx.say("this command can only be used inside a forum thread.").await?;
-        return Ok(());
-    };
-    let Some(parent_id) = thread.parent_id.filter(|p| p.get() == fc.channel_id) else {
-        ctx.say("this command can only be used inside the designated forum channel.").await?;
-        return Ok(());
-    };
-
     let forum = guild_channel(ctx, parent_id).await;
+    let solved_ids = solved_tag_ids(ctx, forum.as_ref());
     let locked = thread.thread_metadata.is_some_and(|m| m.locked);
-    let has_solved = tag_names(forum.as_ref(), &thread).iter().any(|t| t.eq_ignore_ascii_case("solved"));
+    let has_solved = thread.applied_tags.iter().any(|t| solved_ids.contains(t));
     if !locked && !has_solved {
         ctx.say("this thread is not closed.").await?;
         return Ok(());
     }
 
-    let solved_ids: Vec<serenity::ForumTagId> = forum
-        .as_ref()
-        .map(|f| f.available_tags.iter().filter(|t| t.name == "Solved").map(|t| t.id).collect())
-        .unwrap_or_default();
     let new_tags: Vec<_> = thread.applied_tags.iter().copied().filter(|t| !solved_ids.contains(t)).collect();
 
     let edit = serenity::EditThread::new().locked(false).archived(false).applied_tags(new_tags);

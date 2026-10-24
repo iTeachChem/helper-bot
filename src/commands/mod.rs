@@ -85,8 +85,9 @@ pub fn looks_like_user(token: &str) -> bool {
     digits.len() >= 15 && digits.chars().all(|c| c.is_ascii_digit())
 }
 
-/// The current channel if it's a thread, fetched fresh so tags/lock state are current.
-pub async fn current_thread(ctx: Context<'_>) -> Result<Option<serenity::GuildChannel>, Error> {
+/// The current channel if it's a thread, fetched fresh so tags/lock state are current
+/// (the cache can lag behind thread edits, and misses archived threads entirely).
+async fn current_thread(ctx: Context<'_>) -> Result<Option<serenity::GuildChannel>, Error> {
     let channel = ctx.http().get_channel(ctx.channel_id()).await?;
     Ok(match channel {
         serenity::Channel::Guild(gc)
@@ -101,6 +102,31 @@ pub async fn current_thread(ctx: Context<'_>) -> Result<Option<serenity::GuildCh
         }
         _ => None,
     })
+}
+
+/// The current thread and its parent id, if it's a thread in the configured forum.
+/// Replies with the reason and returns None otherwise.
+pub async fn forum_thread(ctx: Context<'_>) -> Result<Option<(serenity::GuildChannel, serenity::ChannelId)>, Error> {
+    let Some(thread) = current_thread(ctx).await? else {
+        ctx.say("this command can only be used inside a forum thread.").await?;
+        return Ok(None);
+    };
+    let Some(parent_id) = thread.parent_id.filter(|p| p.get() == ctx.data().config.forum.channel_id) else {
+        ctx.say("this command can only be used inside the designated forum channel.").await?;
+        return Ok(None);
+    };
+    Ok(Some((thread, parent_id)))
+}
+
+/// Ids of the forum's Solved tag: the configured one, or any tag named "solved" when unset.
+pub fn solved_tag_ids(ctx: Context<'_>, forum: Option<&serenity::GuildChannel>) -> Vec<serenity::ForumTagId> {
+    let tag_id = ctx.data().config.forum.solved_tag_id;
+    if tag_id != 0 {
+        return vec![serenity::ForumTagId::new(tag_id)];
+    }
+    forum
+        .map(|f| f.available_tags.iter().filter(|t| t.name.eq_ignore_ascii_case("solved")).map(|t| t.id).collect())
+        .unwrap_or_default()
 }
 
 /// A guild channel by id, from the cache when possible.
@@ -125,20 +151,12 @@ pub fn tag_names(forum: Option<&serenity::GuildChannel>, thread: &serenity::Guil
         .collect()
 }
 
-/// Does the author have Manage Threads here? Threads use their parent's permissions.
-pub async fn author_can_manage_threads(ctx: Context<'_>, channel: serenity::ChannelId) -> bool {
+/// Does the author have Manage Threads in a thread's parent channel? Threads use their
+/// parent's permissions; taking the parent avoids the thread cache, which skips archived threads.
+pub async fn author_can_manage_threads(ctx: Context<'_>, parent: serenity::ChannelId) -> bool {
     let Some(member) = ctx.author_member().await else { return false };
     let Some(guild) = ctx.guild() else { return false };
-    let target = match guild.channels.get(&channel) {
-        Some(ch) => Some(ch),
-        None => guild
-            .threads
-            .iter()
-            .find(|t| t.id == channel)
-            .and_then(|t| t.parent_id)
-            .and_then(|p| guild.channels.get(&p)),
-    };
-    match target {
+    match guild.channels.get(&parent) {
         Some(ch) => guild.user_permissions_in(ch, &member).manage_threads(),
         None => false,
     }

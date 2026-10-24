@@ -10,10 +10,9 @@ pub fn router() -> Router {
     Router::new().route("/health", get(health))
 }
 
-/// Port: HEALTH_PORT (old name), then PORT (Zerops template), then 8080.
+/// Port: PORT (set by zerops.yml, which also points the readiness check at it), then 8080.
 pub async fn serve() {
-    let port: u16 = std::env::var("HEALTH_PORT")
-        .or_else(|_| std::env::var("PORT"))
+    let port: u16 = std::env::var("PORT")
         .ok()
         .and_then(|p| p.trim().parse().ok())
         .unwrap_or(8080);

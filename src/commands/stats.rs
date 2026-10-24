@@ -103,10 +103,13 @@ pub async fn stats(ctx: Context<'_>, #[rest] who: Option<String>) -> Result<(), 
     let _typing = ctx.channel_id().start_typing(&ctx.serenity_context().http);
     let avatar_url = target.face().replace("size=1024", "size=256");
     let avatar = fetch_avatar(&ctx.data().http, &avatar_url).await;
-    let png = match tokio::task::spawn_blocking(move || crate::render::stats::render(avatar.as_deref(), &card)).await {
-        Ok(Ok(png)) => png,
-        Ok(Err(e)) => return render_failed(ctx, "stats", &target.user.id.to_string(), &e.to_string()).await,
-        Err(e) => return render_failed(ctx, "stats", &target.user.id.to_string(), &e.to_string()).await,
+    let png = match render_blocking(move || crate::render::stats::render(avatar.as_deref(), &card)).await {
+        Ok(png) => png,
+        Err(e) => {
+            tracing::error!("stats render error {}: {e}", target.user.id);
+            ctx.say("couldn't generate stats card, try again later.").await?;
+            return Ok(());
+        }
     };
 
     ctx.send(
@@ -118,11 +121,12 @@ pub async fn stats(ctx: Context<'_>, #[rest] who: Option<String>) -> Result<(), 
     Ok(())
 }
 
-async fn render_failed(ctx: Context<'_>, what: &str, id: &str, err: &str) -> Result<(), Error> {
-    tracing::error!("{what} render error {id}: {err}");
-    let msg = if what == "lb" { "couldn't generate leaderboard card, try again later." } else { "couldn't generate stats card, try again later." };
-    ctx.say(msg).await?;
-    Ok(())
+/// Run a card renderer off the async runtime, folding a panicked task into the error.
+async fn render_blocking<F>(render: F) -> anyhow::Result<Vec<u8>>
+where
+    F: FnOnce() -> anyhow::Result<Vec<u8>> + Send + 'static,
+{
+    tokio::task::spawn_blocking(render).await?
 }
 
 /// leaderboard — `+lb doubts` or `+lb quiz`
@@ -167,10 +171,13 @@ pub async fn lb(ctx: Context<'_>, #[rest] board: Option<String>) -> Result<(), E
 
     let _typing = ctx.channel_id().start_typing(&ctx.serenity_context().http);
     let b = board.clone();
-    let png = match tokio::task::spawn_blocking(move || lb_card::render(&b, &card_rows)).await {
-        Ok(Ok(png)) => png,
-        Ok(Err(e)) => return render_failed(ctx, "lb", &board, &e.to_string()).await,
-        Err(e) => return render_failed(ctx, "lb", &board, &e.to_string()).await,
+    let png = match render_blocking(move || lb_card::render(&b, &card_rows)).await {
+        Ok(png) => png,
+        Err(e) => {
+            tracing::error!("lb render error {board}: {e}");
+            ctx.say("couldn't generate leaderboard card, try again later.").await?;
+            return Ok(());
+        }
     };
 
     ctx.send(

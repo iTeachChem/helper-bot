@@ -8,6 +8,7 @@ use crate::error::is_forbidden;
 use crate::{Data, Error};
 
 const UNBAN_DELAY: Duration = Duration::from_secs(3);
+const NEW_THREAD_WINDOW: Duration = Duration::from_secs(300);
 
 pub async fn handle(ctx: &serenity::Context, event: &serenity::FullEvent, data: &Data) -> Result<(), Error> {
     match event {
@@ -21,6 +22,12 @@ pub async fn handle(ctx: &serenity::Context, event: &serenity::FullEvent, data: 
 async fn on_thread_create(ctx: &serenity::Context, thread: &serenity::GuildChannel, data: &Data) {
     let fc = &data.config.forum;
     if thread.guild_id.get() != fc.server_id || thread.parent_id.map(|p| p.get()) != Some(fc.channel_id) {
+        return;
+    }
+    // THREAD_CREATE is also sent when the bot joins an existing thread, and serenity 0.12
+    // doesn't expose `newly_created`, so only greet posts created in the last few minutes
+    let created = thread.id.created_at().unix_timestamp();
+    if chrono::Utc::now().timestamp() - created > NEW_THREAD_WINDOW.as_secs() as i64 {
         return;
     }
     // discord sometimes rejects messages sent the instant a forum post is created

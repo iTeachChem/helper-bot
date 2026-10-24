@@ -18,8 +18,8 @@ MUTED        = (80,  90,  90)
 W, H = 900, 520
 CX1, CY1, CX2, CY2, CR = 26, 26, 874, 494, 18
 
-_SG = "core/assets/fonts/seguiemj.ttf"
-_ZS = "core/assets/fonts/ZalandoSansExpanded.ttf"
+_SG = "assets/fonts/seguiemj.ttf"
+_ZS = "assets/fonts/ZalandoSansExpanded.ttf"
 
 def _f(p, s):
     try:    return ImageFont.truetype(p, s)
@@ -197,10 +197,10 @@ if you make any geometry changes.
 
 if __name__ == "__main__":
     import os
-    root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
+    root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     os.chdir(root)
     data = generate_stats_template()
-    path = "core/assets/templates/stats_template.png"
+    path = "assets/templates/stats_template.png"
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "wb") as f:
         f.write(data)

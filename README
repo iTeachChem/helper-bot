@@ -1,2 +1,15 @@
 iteachchem helper bot
 authors: iTeachChem Contibutors
+
+Rust (poise/serenity) Discord bot with a small axum /health endpoint.
+
+  cargo run                 # needs .env (see .env.example) and config.toml
+  cargo test                # RENDER_OUT=<dir> cargo test also writes sample cards
+
+Layout
+  src/commands/   +ping +help +avatar +unsolved +solved +reopen +stats +lb
+  src/events.rs   forum thread greeting, honeypot softban
+  src/db.rs       Turso over the HTTP pipeline API
+  src/render/     stats / leaderboard PNG cards
+  assets/         fonts and card templates (embedded into the binary)
+  tools/          python scripts that regenerate the card templates

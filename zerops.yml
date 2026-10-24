@@ -1,24 +1,47 @@
+# yaml-language-server: $schema=https://api.app-prg1.zerops.io/api/rest/public/settings/zerops-yaml-json-schema.json
+
 zerops:
+  # Setup name must match the Zerops service hostname, which is still `bot`.
   - setup: bot
-    type: python@3.12
     build:
-      base: python@3.12
-      buildCommands:
-        - pip install --target=./vendor -r requirements.txt
-      deployFiles:
-        - core
-        - main.py
-        - requirements.txt
-        - zerops.yml
-        - config.toml
-        - vendor
-      cache:
-        - vendor
-    run:
-      base: python@3.12
+      base: rust@stable
+      os: ubuntu
+
+      # Keep cargo registry under the project tree so Zerops can cache it.
       envVariables:
-        PYTHONPATH: /var/www/vendor
+        CARGO_HOME: ./.cargo
+
+      buildCommands:
+        # --locked validates Cargo.lock — prevents surprise dependency updates in prod.
+        - cargo build --release --locked
+
+      deployFiles:
+        # Release binary (fonts + card templates are embedded in it) and the runtime config.
+        - ./target/release/helper-bot
+        - ./config.toml
+
+      cache:
+        - .cargo/registry
+        - target
+
+    deploy:
+      readinessCheck:
+        httpGet:
+          port: 8080
+          path: /health
+
+    run:
+      base: rust@stable
+      os: ubuntu
+
       ports:
         - port: 8080
           httpSupport: true
-      start: python main.py
+
+      # BOT_TOKEN, LOG_WEBHOOK, TURSO_DATABASE_URL and TURSO_AUTH_TOKEN stay
+      # as secret env vars on the service, same as before.
+      envVariables:
+        HOST: "0.0.0.0"
+        PORT: "8080"
+
+      start: ./target/release/helper-bot

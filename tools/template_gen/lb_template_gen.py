@@ -20,8 +20,8 @@ TOP_H    = 118
 BOT_H    = 48
 MAX_ROWS = 10
 
-_SG = "core/assets/fonts/seguiemj.ttf"
-_ZS = "core/assets/fonts/ZalandoSansExpanded.ttf"
+_SG = "assets/fonts/seguiemj.ttf"
+_ZS = "assets/fonts/ZalandoSansExpanded.ttf"
 
 def _f(p, s):
     try:    return ImageFont.truetype(p, s)
@@ -151,11 +151,11 @@ if you make any geometry changes.
 
 if __name__ == "__main__":
     import os
-    root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
+    root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     os.chdir(root)
     for bt in ("doubts", "quiz"):
         data = generate_lb_template(bt)
-        path = f"core/assets/templates/lb_{bt}_template.png"
+        path = f"assets/templates/lb_{bt}_template.png"
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "wb") as f:
             f.write(data)

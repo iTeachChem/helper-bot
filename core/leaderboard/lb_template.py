@@ -1,138 +1,124 @@
 from __future__ import annotations
-from pathlib import Path
 import io
-import os
 import asyncio
+from functools import lru_cache
 from datetime import datetime, timezone
 
 from PIL import Image, ImageDraw, ImageFont
 
-# template paths 
-ROOT = Path(__file__).resolve().parents[1]
-_TMPL_D   = os.path.join(ROOT, "assets", "templates", "lb_doubts_template.png")
-_TMPL_Q   = os.path.join(ROOT, "assets", "templates", "lb_quiz_template.png")
-
-# palette 
-MIST      = (209, 224, 222)
-MIST_DIM  = (140, 160, 160)
-KEYLIME   = (238, 244, 206)
-CHARCOAL_ROW = (34, 34, 34)
-CHARCOAL_MID = (38, 38, 38)
-
-GOLD      = (220, 185,  60)
-SILVER    = (170, 180, 195)
-BRONZE    = (185, 120,  70)
-BADGE_COL_DEF = MIST_DIM
-
-GOLD_BG   = (55,  48,  15)
-SILVER_BG = (32,  40,  50)
-BRONZE_BG = (50,  32,  18)
-DEF_BG    = (38,  38,  38)
+# palette — one solid ink-blue card with a single accent, so it reads the same
+# on Discord light and dark themes
+BG        = ( 31,  35,  64)
+SURFACE   = ( 42,  47,  85)
+BORDER    = ( 78,  86, 140)
+DIVIDER   = ( 52,  58, 102)
+TEXT      = (245, 246, 251)
+TEXT_DIM  = (185, 191, 220)
+ACCENT    = (139, 155, 255)
 
 # fonts
-_SG  = "core/assets/fonts/seguiemj.ttf"
-_ZS  = "core/assets/fonts/ZalandoSansExpanded.ttf"
+_ZS = "core/assets/fonts/ZalandoSansExpanded.ttf"
 
-def _f(path, size):
-    try:    return ImageFont.truetype(path, size)
-    except: return ImageFont.load_default()
+@lru_cache(maxsize=32)
+def _f(size: int, weight: int = 400):
+    try:
+        font = ImageFont.truetype(_ZS, size)
+        font.set_variation_by_axes([weight])
+        return font
+    except Exception:
+        return ImageFont.load_default()
 
-# card geometry 
-CARD_W   = 680
-ROW_H    = 64
-TOP_H    = 118
-BOT_H    = 48
-MAX_ROWS = 10
-PAD_X    = 40
+# card geometry
+CARD_W    = 800
+PAD       = 48
+RADIUS    = 28
+HEAD_Y    = 160
+ROWS_Y    = 206
+ROW_H     = 72
+ROW_GAP   = 4
+RING      = 48
+MAX_ROWS  = 10
 
 
 def _rr(draw, xy, r, fill=None, outline=None, width=1):
     draw.rounded_rectangle(list(xy), radius=r, fill=fill, outline=outline, width=width)
 
 
-def _fit(draw, text: str, font, max_w: float) -> str:
-    """Truncate with ellipsis only when text exceeds 12 chars AND pixel-overflows."""
-    if len(text) <= 12 or draw.textlength(text, font=font) <= max_w:
-        return text
+def _fit(draw, text: str, size: int, weight: int, max_w: float):
+    """Shrink a long name a few steps first, then truncate with an ellipsis."""
+    for s in range(size, size - 6, -1):
+        font = _f(s, weight)
+        if draw.textlength(text, font=font) <= max_w:
+            return text, font
     while len(text) > 1 and draw.textlength(text + "…", font=font) > max_w:
         text = text[:-1]
-    return text + "…"
+    return text + "…", font
 
 
 def generate_lb_card_sync(board_type: str, rows: list[dict]) -> bytes:
     is_doubts = board_type.lower() == "doubts"
-    tmpl_path = _TMPL_D if is_doubts else _TMPL_Q
-    val_label = "doubts solved" if is_doubts else "questions solved"
+    title     = "Top Doubt Solvers" if is_doubts else "Top Quiz Solvers"
+    val_label = "DOUBTS SOLVED" if is_doubts else "QUESTIONS SOLVED"
 
-    n    = min(len(rows), MAX_ROWS)
-    rows = rows[:n]
+    rows     = rows[:MAX_ROWS]
+    footer_y = ROWS_Y + len(rows) * (ROW_H + ROW_GAP) + 24
+    card_h   = footer_y + 18 + 40
 
-    with Image.open(tmpl_path) as tmpl:
-        img = tmpl.copy().convert("RGBA")
-
+    # transparent outside the rounded card so the corners blend into either theme
+    img  = Image.new("RGBA", (CARD_W, card_h), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
+    _rr(draw, (0, 0, CARD_W - 1, card_h - 1), r=RADIUS, fill=BG)
 
-    f_rank  = _f(_SG,  17)
-    f_name  = _f(_ZS,  16)
-    f_val   = _f(_ZS,  16)
-    f_label = _f(_ZS,  12)
-    f_date  = _f(_ZS, 11)
+    # header
+    date_str = datetime.now(timezone.utc).strftime("%d %b %Y").upper()
+    draw.text((PAD, 48), f"SERVER LEADERBOARD  ·  {date_str}", font=_f(17, 600), fill=ACCENT)
+    draw.text((PAD, 82), title, font=_f(40, 800), fill=TEXT)
 
-    # date string in header
-    date_str = datetime.now(timezone.utc).strftime("%d %b %Y")
-    dw = draw.textlength(date_str, font=f_date)
-    draw.text((CARD_W - 22 - 18 - dw, 36), date_str, font=f_date, fill=MIST_DIM)
+    # column header, printed once instead of on every row
+    f_head = _f(14, 600)
+    draw.text((PAD + 16, HEAD_Y), "RANK", font=f_head, fill=TEXT_DIM)
+    draw.text((PAD + 16 + RING + 24, HEAD_Y), "MEMBER", font=f_head, fill=TEXT_DIM)
+    draw.text((CARD_W - PAD - 16, HEAD_Y), val_label, font=f_head, fill=TEXT_DIM, anchor="ra")
+    draw.line([(PAD, HEAD_Y + 30), (CARD_W - PAD, HEAD_Y + 30)], fill=DIVIDER, width=2)
 
-    # max username width: space between badge and value block
-    max_name_w = CARD_W - PAD_X * 2 - 60 - 130
-
+    f_rank = _f(20, 700)
+    f_val  = _f(30, 800)
     for i, row in enumerate(rows):
-        ry  = TOP_H + 22 + i * ROW_H
-        mid = ry + ROW_H // 2
+        top3 = i < 3
+        ry   = ROWS_Y + i * (ROW_H + ROW_GAP)
+        mid  = ry + ROW_H / 2
 
-        rank_num = i + 1
-        if rank_num == 1:
-            badge_col = GOLD;   badge_bg = GOLD_BG
-        elif rank_num == 2:
-            badge_col = SILVER; badge_bg = SILVER_BG
-        elif rank_num == 3:
-            badge_col = BRONZE; badge_bg = BRONZE_BG
-        else:
-            badge_col = BADGE_COL_DEF
-            badge_bg  = CHARCOAL_ROW if i % 2 == 0 else CHARCOAL_MID
+        if top3:
+            _rr(draw, (PAD, ry, CARD_W - PAD, ry + ROW_H), r=14, fill=SURFACE)
 
-        bx, bw, bh = PAD_X, 40, 32
+        # rank ring
+        rx = PAD + 16
+        draw.ellipse((rx, mid - RING / 2, rx + RING, mid + RING / 2),
+                     outline=ACCENT if top3 else BORDER, width=2)
+        draw.text((rx + RING / 2, mid), str(i + 1), font=f_rank,
+                  fill=ACCENT if top3 else TEXT_DIM, anchor="mm")
 
-        # actual badge (overwrites template placeholder)
-        _rr(draw,
-            (bx, mid - bh // 2, bx + bw, mid + bh // 2),
-            r=6, fill=badge_bg, outline=badge_col, width=1)
-        rtext = f"#{rank_num}"
-        rtw   = draw.textlength(rtext, font=f_rank)
-        draw.text(
-            (bx + (bw - rtw) / 2, mid - 11),
-            rtext, font=f_rank, fill=badge_col)
-
-        # username
-        nx    = bx + bw + 18
-        uname = _fit(draw, row["username"], f_name, max_name_w)
-        draw.text((nx, mid - 11), uname, font=f_name, fill=MIST)
-
+        # value
         vtext = str(row["value"])
-        vw    = draw.textlength(vtext, font=f_val)
-        lw    = draw.textlength(val_label, font=f_label)
-        vx    = CARD_W - PAD_X - max(vw, lw)
-        draw.text((vx, mid - 18), vtext, font=f_val, fill=KEYLIME)
+        vx    = CARD_W - PAD - 16
+        draw.text((vx, mid), vtext, font=f_val, fill=TEXT, anchor="rm")
 
-    for i in range(n, MAX_ROWS):
-        ry = TOP_H + 22 + i * ROW_H
-        fill = (34, 34, 34) if i % 2 == 0 else (38, 38, 38)
-        draw.rectangle((28, ry + 4, CARD_W - 28, ry + ROW_H - 4), fill=fill)
+        # username gets everything between the ring and the value
+        nx    = rx + RING + 24
+        max_w = vx - draw.textlength(vtext, font=f_val) - 32 - nx
+        name, f_name = _fit(draw, row["username"], 26, 700 if top3 else 500, max_w)
+        draw.text((nx, mid), name, font=f_name, fill=TEXT, anchor="lm")
+
+    # footer
+    f_foot = _f(15, 500)
+    draw.text((PAD, footer_y), "iTeachChem Helper", font=f_foot, fill=TEXT_DIM)
+    draw.text((CARD_W - PAD, footer_y), f"+lb {board_type.lower()}",
+              font=f_foot, fill=TEXT_DIM, anchor="ra")
 
     # exporting to bytes then releasing all image memory before returning
     out = io.BytesIO()
     try:
-        img.convert("RGB").save(out, format="PNG", optimize=True)
+        img.save(out, format="PNG", optimize=True)
         result = out.getvalue()
     finally:
         out.close()

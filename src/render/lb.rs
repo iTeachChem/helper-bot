@@ -2,15 +2,20 @@ use image::RgbaImage;
 
 use super::{draw_text, draw_text_bold, encode_png_rgba, rounded_rect, Face, Rgb, FONTS};
 
-// palette — one solid ink-blue card with a single accent, so it reads the same
-// on Discord light and dark themes
-const BG: Rgb = (31, 35, 64);
-const SURFACE: Rgb = (42, 47, 85);
-const BORDER: Rgb = (78, 86, 140);
-const DIVIDER: Rgb = (52, 58, 102);
-const TEXT: Rgb = (245, 246, 251);
-const TEXT_DIM: Rgb = (185, 191, 220);
-const ACCENT: Rgb = (139, 155, 255);
+// palette — Discord-grey card; gold/silver/bronze mark the top 3
+const BG: Rgb = (43, 45, 49);
+const BORDER: Rgb = (78, 80, 88);
+const DIVIDER: Rgb = (63, 65, 71);
+const TEXT: Rgb = (242, 243, 245);
+const TEXT_DIM: Rgb = (181, 186, 193);
+const GOLD: Rgb = (240, 178, 50);
+
+// (ring/number, row tint) for ranks 1–3; tints are the medal colour at ~10% over BG
+const MEDALS: [(Rgb, Rgb); 3] = [
+    ((240, 178, 50), (67, 61, 49)),
+    ((212, 216, 222), (58, 60, 65)),
+    ((232, 146, 90), (64, 56, 54)),
+];
 
 // card geometry
 const CARD_W: f32 = 800.0;
@@ -61,12 +66,20 @@ pub fn render(board: &str, rows: &[LbRow]) -> anyhow::Result<Vec<u8>> {
     let mut img = RgbaImage::new(CARD_W as u32, card_h as u32);
     rounded_rect(&mut img, (0.0, 0.0, CARD_W - 1.0, card_h - 1.0), RADIUS, Some(BG), None);
 
-    // header
-    let date_str = chrono::Utc::now().format("%d %b %Y").to_string().to_uppercase();
+    // header — the brand keeps its own casing; only the label after it is caps
     let f_kicker = Face::new(&FONTS.zs, 17.0);
+    let brand = "iTeachChem";
+    draw_text_bold(&mut img, f_kicker, PAD, 48.0, brand, GOLD, 0.6);
+    let kx = PAD + f_kicker.width(brand) + 0.6;
+    draw_text_bold(&mut img, f_kicker, kx, 48.0, "  ·  SERVER LEADERBOARD", GOLD, 0.6);
+
     let f_title = Face::new(&FONTS.zs, 40.0);
-    draw_text_bold(&mut img, f_kicker, PAD, 48.0, &format!("SERVER LEADERBOARD  ·  {date_str}"), ACCENT, 0.6);
     draw_text_bold(&mut img, f_title, PAD, 82.0, title, TEXT, 2.0);
+
+    let f_date = Face::new(&FONTS.zs, 18.0);
+    let date_str = chrono::Utc::now().format("%d %b %Y").to_string();
+    let title_mid = f_title.ascent() + 82.0 - f_title.cap_height() / 2.0;
+    draw_text(&mut img, f_date, CARD_W - PAD - f_date.width(&date_str), f_date.y_centered(title_mid + 4.0), &date_str, TEXT_DIM);
 
     // column header, printed once instead of on every row
     let f_head = Face::new(&FONTS.zs, 14.0);
@@ -80,18 +93,20 @@ pub fn render(board: &str, rows: &[LbRow]) -> anyhow::Result<Vec<u8>> {
     let f_rank = Face::new(&FONTS.zs, 20.0);
     let f_val = Face::new(&FONTS.zs, 30.0);
     for (i, row) in rows.iter().enumerate() {
-        let top3 = i < 3;
+        let medal = MEDALS.get(i).copied();
         let ry = ROWS_Y + i as f32 * (ROW_H + ROW_GAP);
         let mid = ry + ROW_H / 2.0;
 
-        if top3 {
-            rounded_rect(&mut img, (PAD, ry, CARD_W - PAD, ry + ROW_H), 14.0, Some(SURFACE), None);
+        if let Some((_, tint)) = medal {
+            rounded_rect(&mut img, (PAD, ry, CARD_W - PAD, ry + ROW_H), 14.0, Some(tint), None);
         }
 
         // rank ring
         let rx = PAD + 16.0;
-        let ring_col = if top3 { ACCENT } else { BORDER };
-        let fill = if top3 { SURFACE } else { BG };
+        let (ring_col, fill, num_col) = match medal {
+            Some((col, tint)) => (col, tint, col),
+            None => (BORDER, BG, TEXT_DIM),
+        };
         rounded_rect(
             &mut img,
             (rx, mid - RING / 2.0, rx + RING, mid + RING / 2.0),
@@ -101,15 +116,7 @@ pub fn render(board: &str, rows: &[LbRow]) -> anyhow::Result<Vec<u8>> {
         );
         let rtext = (i + 1).to_string();
         let rw = f_rank.width(&rtext) + 1.0;
-        draw_text_bold(
-            &mut img,
-            f_rank,
-            rx + (RING - rw) / 2.0,
-            f_rank.y_centered(mid),
-            &rtext,
-            if top3 { ACCENT } else { TEXT_DIM },
-            1.0,
-        );
+        draw_text_bold(&mut img, f_rank, rx + (RING - rw) / 2.0, f_rank.y_centered(mid), &rtext, num_col, 1.0);
 
         // value
         let vtext = row.value.to_string();
@@ -121,7 +128,7 @@ pub fn render(board: &str, rows: &[LbRow]) -> anyhow::Result<Vec<u8>> {
         let nx = rx + RING + 24.0;
         let (name, f_name) = fit_name(&row.username, 26.0, vx - 32.0 - nx);
         let ny = f_name.y_centered(mid);
-        if top3 {
+        if medal.is_some() {
             draw_text_bold(&mut img, f_name, nx, ny, &name, TEXT, 1.0);
         } else {
             draw_text(&mut img, f_name, nx, ny, &name, TEXT);

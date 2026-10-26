@@ -55,6 +55,28 @@ impl<'a> Face<'a> {
         w
     }
 
+    /// Distance from the ascender line to the baseline.
+    pub fn ascent(&self) -> f32 {
+        self.font.as_scaled(self.scale).ascent()
+    }
+
+    /// Height of a capital H, for centring a line of text on a y coordinate.
+    pub fn cap_height(&self) -> f32 {
+        let glyph = self.font.glyph_id('H').with_scale(self.scale);
+        self.font
+            .outline_glyph(glyph)
+            .map(|o| {
+                let b = o.px_bounds();
+                b.max.y - b.min.y
+            })
+            .unwrap_or(self.scale.y * 0.7)
+    }
+
+    /// `draw_text` y that puts the cap height centred on `mid`.
+    pub fn y_centered(&self, mid: f32) -> f32 {
+        mid + self.cap_height() / 2.0 - self.ascent()
+    }
+
     /// Pillow's `_fit`: truncate with an ellipsis only when the text is longer
     /// than 12 chars AND overflows `max_w`.
     pub fn fit(&self, text: &str, max_w: f32) -> String {
@@ -93,6 +115,15 @@ pub fn draw_text(img: &mut RgbaImage, face: Face, x: f32, y: f32, text: &str, co
                 blend(img, b.min.x as i32 + gx as i32, b.min.y as i32 + gy as i32, color, cov);
             });
         }
+    }
+}
+
+/// `draw_text` thickened by `extra` px. ab_glyph can't pick a weight from a
+/// variable font, so heavier text is overdrawn a few times along x.
+pub fn draw_text_bold(img: &mut RgbaImage, face: Face, x: f32, y: f32, text: &str, color: Rgb, extra: f32) {
+    let steps = (extra / 0.4).ceil().max(1.0) as u32;
+    for s in 0..=steps {
+        draw_text(img, face, x + extra * s as f32 / steps as f32, y, text, color);
     }
 }
 
@@ -202,6 +233,21 @@ pub fn encode_png(img: RgbaImage) -> anyhow::Result<Vec<u8>> {
         rgb.width(),
         rgb.height(),
         image::ExtendedColorType::Rgb8,
+    )?;
+    Ok(out)
+}
+
+/// Encode as a compressed PNG keeping alpha, for cards with transparent corners.
+pub fn encode_png_rgba(img: RgbaImage) -> anyhow::Result<Vec<u8>> {
+    use image::codecs::png::{CompressionType, FilterType, PngEncoder};
+    use image::ImageEncoder;
+
+    let mut out = Vec::new();
+    PngEncoder::new_with_quality(&mut out, CompressionType::Best, FilterType::Adaptive).write_image(
+        img.as_raw(),
+        img.width(),
+        img.height(),
+        image::ExtendedColorType::Rgba8,
     )?;
     Ok(out)
 }

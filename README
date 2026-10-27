@@ -1,5 +1,5 @@
 iteachchem helper bot
-authors: iTeachChem Contibutors
+authors: iTeachChem Contributors
 
 Rust (poise/serenity) Discord bot with a small axum /health endpoint.
 
@@ -13,3 +13,15 @@ Layout
   src/render/     stats / leaderboard PNG cards
   assets/         fonts and card templates (embedded into the binary)
   tools/          python scripts that regenerate the card templates
+
+Credits
+  Krishna (github.com/KrishnaSSH)    created the bot; Turso database, honeypot,
+                                     logging; proposed, reviewed, hardened and
+                                     deployed the Rust rewrite
+  Picchi (github.com/Picchiiii)      stats and leaderboard cards, forum fixes,
+                                     error handling
+  Arjun Aditya (github.com/nermalcat69)  dependency cleanup
+  iTeachChem (github.com/iteachc)    project owner; leaderboard redesign
+  The initial Rust port was written with Claude (AI).
+
+Licensed under MIT (see LICENSE).

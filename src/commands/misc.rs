@@ -17,7 +17,10 @@ pub async fn ping(ctx: Context<'_>, #[rest] _rest: Option<String>) -> Result<(),
     let handle = ctx.say("pinging...").await?;
     let latency = start.elapsed().as_millis();
     let embed = serenity::CreateEmbed::new().title("pong!").description(format!("latency: `{latency}ms`"));
-    handle.edit(ctx, CreateReply::default().content("").embed(embed)).await?;
+    // editing "pinging..." into an empty-content embed fails with "Cannot send an empty message",
+    // so swap the placeholder for a fresh embed reply instead
+    handle.delete(ctx).await?;
+    ctx.send(CreateReply::default().embed(embed)).await?;
     Ok(())
 }
 

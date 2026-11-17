@@ -17,6 +17,8 @@ pub struct Data {
     pub db: db::Db,
     pub http: reqwest::Client,
     pub cooldowns: commands::Cooldowns,
+    /// forum posts already greeted, so a repeated THREAD_CREATE doesn't greet twice
+    pub greeted: std::sync::Mutex<std::collections::HashSet<u64>>,
 }
 
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
@@ -41,7 +43,7 @@ async fn main() -> anyhow::Result<()> {
     db.set_started_at().await?;
     tracing::info!("setup: db initialised and started_at recorded");
 
-    let data = Data { config: config.clone(), db, http, cooldowns: Default::default() };
+    let data = Data { config: config.clone(), db, http, cooldowns: Default::default(), greeted: Default::default() };
 
     let framework = poise::Framework::builder()
         .options(poise::FrameworkOptions {

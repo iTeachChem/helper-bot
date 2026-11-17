@@ -30,6 +30,16 @@ async fn on_thread_create(ctx: &serenity::Context, thread: &serenity::GuildChann
     if chrono::Utc::now().timestamp() - created > NEW_THREAD_WINDOW.as_secs() as i64 {
         return;
     }
+    // discord sends THREAD_CREATE again when the bot joins the thread to reply; greet each post once
+    {
+        let mut greeted = data.greeted.lock().unwrap();
+        if greeted.len() > 1000 {
+            greeted.clear();
+        }
+        if !greeted.insert(thread.id.get()) {
+            return;
+        }
+    }
     // discord sometimes rejects messages sent the instant a forum post is created
     tokio::time::sleep(Duration::from_secs(1)).await;
 
